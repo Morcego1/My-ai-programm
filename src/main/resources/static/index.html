@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Генератор Картинок</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 20px; background-color: #f4f4f9; }
+        input[type="text"] { width: 400px; padding: 10px; font-size: 16px; border: 1px solid #ccc; border-radius: 5px; }
+        button { padding: 10px 20px; font-size: 16px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        .settings-panel { margin-top: 15px; display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
+        .setting-item { background: white; padding: 10px 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: left; }
+        .setting-item label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 5px; color: #333; }
+        .setting-item input[type="range"] { width: 150px; vertical-align: middle; }
+        .setting-item span { font-size: 14px; font-weight: bold; color: #4CAF50; margin-left: 10px; }
+
+        #loader { display: none; margin-top: 20px; font-size: 18px; color: #555; }
+        .spinner { width: 40px; height: 40px; margin: 0 auto 10px; border: 4px solid #f3f3f3; border-top: 4px solid #4CAF50; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        #result { margin-top: 20px; max-width: 512px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+
+        #history-section { margin-top: 40px; max-width: 800px; margin-left: auto; margin-right: auto; text-align: left; }
+        .history-item { background: white; padding: 10px 15px; margin-bottom: 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .history-prompt { font-weight: bold; color: #333; }
+        .history-date { font-size: 12px; color: #888; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<h1>🎨 Сгенерируй свою картинку</h1>
+<p>Введите промпт на английском языке</p>
+
+<div>
+    <input type="text" id="promptInput" placeholder="Введите описание картинки...">
+    <button id="generateBtn" onclick="generateImage()">Сгенерировать!</button>
+</div>
+
+<div class="settings-panel">
+    <div class="setting-item">
+        <label>Размер (px):</label>
+        <input type="range" id="sizeRange" min="256" max="512" step="128" value="256" oninput="document.getElementById('sizeValue').innerText = this.value">
+        <span id="sizeValue">256</span>
+    </div>
+    <div class="setting-item">
+        <label>Шаги:</label>
+        <input type="range" id="stepsRange" min="10" max="50" step="5" value="20" oninput="document.getElementById('stepsValue').innerText = this.value">
+        <span id="stepsValue">20</span>
+    </div>
+</div>
+
+<div id="loader">
+    <div class="spinner"></div>
+    Нейросеть рисует...
+</div>
+
+<div>
+    <img id="result" style="display: none;" alt="Сгенерированное изображение">
+</div>
+
+<div id="history-section">
+    <h3>📜 Последние 10 запросов:</h3>
+    <div id="history-list">Загрузка...</div>
+</div>
+
+<script>
+    window.onload = function() { loadHistory(); };
+
+    async function generateImage() {
+        const prompt = document.getElementById('promptInput').value;
+        const size = document.getElementById('sizeRange').value;
+        const steps = document.getElementById('stepsRange').value;
+        const btn = document.getElementById('generateBtn');
+
+        if (!prompt) { alert("Введите промпт!"); return; }
+
+        const loader = document.getElementById('loader');
+        const resultImg = document.getElementById('result');
+
+        btn.disabled = true;
+        loader.style.display = 'block';
+        resultImg.style.display = 'none';
+
+
+        try {
+            const url = `/generate?prompt=${encodeURIComponent(prompt)}&width=${size}&height=${size}&steps=${steps}`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error("Ошибка");
+
+            const blob = await response.blob();
+            resultImg.src = URL.createObjectURL(blob);
+            resultImg.style.display = 'block';
+            loadHistory();
+        } catch (error) {
+            alert("Ошибка: " + error.message);
+        } finally {
+            btn.disabled = false;
+            loader.style.display = 'none';
+        }
+    }
+
+    async function loadHistory() {
+        try {
+            const response = await fetch('/history');
+            const history = await response.json();
+            const listContainer = document.getElementById('history-list');
+            listContainer.innerHTML = '';
+
+            if (history.length === 0) {
+                listContainer.innerHTML = '<p>История пока пуста.</p>';
+                return;
+            }
+
+            history.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'history-item';
+
+                let dateStr = item.createdAt ? String(item.createdAt).replace('T', ' ').substring(0, 19) : 'Неизвестно';
+
+                // Проверяем, есть ли файл и не является ли он старым путем (содержит ":")
+                // Если это старый путь из Windows, картинку не показываем
+                let imgTag = '';
+                if (item.imagePath && !item.imagePath.includes(':')) {
+                    imgTag = `<img src="/images/${item.imagePath}" style="width: 100px; height: 100px; object-fit: cover; border-radius: 5px; margin-right: 15px; float: left;" alt="img">`;
+                }
+
+                div.innerHTML = `
+                        <div style="overflow: hidden;">
+                            ${imgTag}
+                            <div class="history-prompt">${item.prompt}</div>
+                            <div class="history-date">${dateStr}</div>
+                        </div>
+                    `;
+                listContainer.appendChild(div);
+            });
+        } catch (error) {
+            document.getElementById('history-list').innerHTML = '<p style="color:red">Ошибка загрузки истории.</p>';
+        }
+    }
+</script>
+</body>
+</html>
